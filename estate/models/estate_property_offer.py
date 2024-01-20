@@ -6,6 +6,12 @@ from odoo.exceptions import UserError
 
 class EstatePropertyOffer(models.Model):
     _name = "estate.property.offer"
+    _sql_constraints = [
+    ('check_price', 'CHECK(price > 0 )',
+     'The Price should be positive.'),
+    ]
+    _order = "price desc"
+
 
     price = fields.Float()
     status = fields.Selection([('accepted','Accepted'), ('refused', 'Refused')], copy=False)
@@ -15,6 +21,10 @@ class EstatePropertyOffer(models.Model):
     validity = fields.Integer(default=7)
     date_deadline = fields.Date(compute='_compute_date_deadline', inverse='_inverse_date_deadline')
 
+    property_type_id = fields.Many2one(
+        "estate.property.type", related="property_id.property_type_id", string="Property Type", store=True
+    )
+    
     @api.depends('create_date', 'validity')
     def _compute_date_deadline(self):
         for record in self:
@@ -33,39 +43,59 @@ class EstatePropertyOffer(models.Model):
                 date = fields.Date.today()
             
             record.validity = (record.date_deadline - date).days
+    
+    @api.model
+    def create(self, vals):
+        record = super().create(vals)
+        if record:
+            record.update_state()
+        return record
+
+    def update_state(self):
+        return self.mapped("property_id").write(
+            {
+                "state": "offer_received",
+            }
+        )
+    # def action_accepted(self):
+    #     if "accepted" in self.mapped("property_id.offer_ids.status"):
+    #         raise UserError(_("An offer has already been accepted."))
+    #     else:
+    #         self.status = 'accepted'
+    #         self.property_id.selling_price = self.price
+    #         self.property_id.buyer_id = self.partner_id
 
     def action_accepted(self):
         if "accepted" in self.mapped("property_id.offer_ids.status"):
-            raise UserError(_("An offer has already been accepted."))
-        else:
-            self.status = 'accepted'
-            self.property_id.selling_price = self.price
-            self.property_id.buyer_id = self.partner_id
+            raise UserError(_("An offer as already been accepted."))
+        self.write(
+            {
+                "status": "accepted",
+            }
+        )
+        return self.mapped("property_id").write(
+            {
+                "state": "offer_accepted",
+                "selling_price": self.price,
+                "buyer_id": self.partner_id,
+            }
+        )
 
-    # Recommend This Way
-    # def action_accept(self):
-    #     if "accepted" in self.mapped("property_id.offer_ids.state"):
-    #         raise UserError("An offer as already been accepted.")
-    #     self.write(
-    #         {
-    #             "state": "accepted",
-    #         }
-    #     )
-    #     return self.mapped("property_id").write(
-    #         {
-    #             "state": "offer_accepted",
-    #             "selling_price": self.price,
-    #             "buyer_id": self.partner_id.id,
-    #         }
-    #     )
+    # def action_refused(self):
+    #     self.status = 'refused'
+    #     self.property_id.selling_price = 0
+    #     self.property_id.buyer_id = False
 
     def action_refused(self):
-        self.status = 'refused'
-
-    # Recommend This Way
-    # def action_refuse(self):
-    #     return self.write(
-    #         {
-    #             "state": "refused",
-    #         }
-    #     )
+        self.write(
+            {
+                "status": "refused"
+            }
+        )
+        return self.mapped("property_id").write(
+            {
+                "state": "offer_received",
+                "selling_price": 0,
+                "buyer_id": False,
+            }
+        )
