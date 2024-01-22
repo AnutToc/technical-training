@@ -3,6 +3,8 @@ from odoo import fields, models, api, _
 
 from dateutil.relativedelta import relativedelta
 from odoo.exceptions import UserError
+from odoo.tools import float_compare
+
 
 class EstatePropertyOffer(models.Model):
     _name = "estate.property.offer"
@@ -46,17 +48,27 @@ class EstatePropertyOffer(models.Model):
     
     @api.model
     def create(self, vals):
-        record = super().create(vals)
-        if record:
-            record.update_state()
-        return record
+        if vals.get("property_id") and vals.get("price"):
+            record = self.env["estate.property"].browse(vals["property_id"])
+            if record.offer_ids:
+                max_offer = max(record.mapped("offer_ids.price"))
+                if float_compare(vals["price"], max_offer, precision_rounding=0.01) <= 0:
+                    raise UserError("The offer must be higher that %.2f" % max_offer)
+            record.state = "offer_received"
+        return super().create(vals)
 
-    def update_state(self):
-        return self.mapped("property_id").write(
-            {
-                "state": "offer_received",
-            }
-        )
+    # def create(self, vals):
+    #     record = super().create(vals)
+    #     if record:
+    #         record.update_state()
+    #     return record
+    # 
+    # def update_state(self):
+    #     return self.mapped("property_id").write(
+    #         {
+    #             "state": "offer_received",
+    #         }
+    #     )
     # def action_accepted(self):
     #     if "accepted" in self.mapped("property_id.offer_ids.status"):
     #         raise UserError(_("An offer has already been accepted."))
